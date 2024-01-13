@@ -1,4 +1,9 @@
-// Run script after adding bot to (exactly 1) server with `node <filename>` in actual Terminal Window not VSCode
+// Steps to Run:
+// 0. If neccesary, check out this code and then follow the Discord.js tutorial make and add a bot to your server
+// 1. Update the UPPERCASE_CONSTANT_VARIABLES below
+// 2. Run with `node <filename>` in actual Terminal window not VSCode
+// 3. Open them output file to see your results!
+
 const THEMES_FILE_NAME = "themes.txt";
 const GUILD_ID = "1132366246223040642";
 const IGNORE_CHANNEL_CATEGORIES = new Set([
@@ -11,10 +16,10 @@ const IGNORE_CHANNELS = new Set([
     "1135223324117573702", // #general
 ]);
 
-// TODO:
-// Make this work for imgur links too
-// Or do in a separate file
-// Need to use js-compatible scraper because stuff doesn't load fast enough
+const SHOULD_SCRAPE_IMGUR_LINKS = false;
+const ALL_IMGUR_LINKS_TO_SCRAPE = [
+
+]
 
 // ========================================
 
@@ -51,12 +56,6 @@ function getChannels(guild) {
     return channels;
 }
 
-// Generalized function for both channel messages and imgur descriptions
-// Gets all Tiger themes from messages with 1 or more in them
-function extractAllTigerThemesFromText(text) {
-
-}
-
 // returns theme string if present, null otherwise
 function extractFirstFoundTigerThemeFromText(text) {
     const [ themeStarter, themeEnder ] = [ 'TIGER_JSON{', '}}}' ];
@@ -78,12 +77,51 @@ function extractFirstFoundTigerThemeFromText(text) {
     return text.slice(themeStarterIndex, themeEnderIndex + themeEnder.length);
 }
 
+// Generalized function for both channel messages and imgur descriptions
+// Returns all matches from texts with 1 or more match in them
+// matchFunction must take in 1 string (the text) and return the 1st found match as a string or null if there's none
+function extractAllMatchesFromTexts(texts, seenSet, matchFunction) {
+    const unseenSet = new Set();
+    
+    for (let text of texts) {
+        // Use a while loop because there may be multiple themes per message
+        while (true) {
+            const firstFoundMatch = matchFunction(text);
+
+            // If no valid matches found in msg, 
+            // break out of loop to continue to next msg
+            if (!firstFoundMatch) break;
+
+            // If valid match and it wasn't already scraped, then add it to unseenThemes
+            if (firstFoundMatch && !seenSet.has(firstFoundMatch)) {
+                console.log(firstFoundMatch)
+                unseenSet.add(firstFoundMatch);
+            }
+
+            // remove the extracted theme from the text to see if there's more themes within message
+            // .replace only replaces 1st found instance of theme
+            text = text.replace(firstFoundMatch, "");
+        }
+    }
+
+    return unseenSet;
+}
+
 function appendThemesToFile(themes) {
     let allThemesStr = "";
     for (const theme of themes) {
         allThemesStr += (theme + "\n");
     }
     fs.appendFileSync(THEMES_FILE_NAME, allThemesStr);
+}
+
+// Not worth trying to extract all imgur links automatically because their url's vary a lot
+// There's only a handful of imgur links in the server, so its easier to maintain a manual list
+async function scrapeAllImgurThemes() {
+    // TODO
+    console.log('Scraping Imgur sites!');
+    // https://github.com/Road6943/Arras-Highest-Scores-Over-Time-Bar-Chart-Race/blob/ceae02ed2534b198a8475fc363081888e65ce3e7/make_racing_bar_chart.py#L388
+    // https://stackoverflow.com/a/55713496
 }
 
 async function scrapeAllThemesInServer(guild) {
@@ -100,29 +138,8 @@ async function scrapeAllThemesInServer(guild) {
         // need to enable Message Content on bot's discord settings page for this to work
         const allMessagesTexts = allMessages.map(msg => msg.content);
 
-        const unseenThemes = new Set();
-        for (let text of allMessagesTexts) {
-            // Use a while loop because there may be multiple themes per message
-            while (true) {
-                const tigerTheme = extractFirstFoundTigerThemeFromText(text);
-
-                // If no valid tiger theme's found in msg, 
-                // break out of loop to continue to next msg
-                if (!tigerTheme) break;
-
-                // If valid tiger theme and it wasn't already scraped, then add it to unseenThemes
-                if (tigerTheme && !seenThemes.has(tigerTheme)) {
-                    console.log(tigerTheme)
-                    unseenThemes.add(tigerTheme);
-                }
-
-                // remove the extracted theme from the text to see if there's more themes within message
-                // .replace only replaces 1st found instance of theme
-                text = text.replace(tigerTheme, "");
-            }
-        }
-
-        // After reading a channel, append its themes to the file and seenThemes
+         // After reading a channel, append its unseen themes to the file and seenThemes
+        unseenThemes = extractAllMatchesFromTexts(allMessagesTexts, seenThemes, extractFirstFoundTigerThemeFromText);
         appendThemesToFile(unseenThemes);
         seenThemes = new Set([...seenThemes, ...unseenThemes]);
     }
@@ -135,8 +152,16 @@ function main() {
 
     client.on("ready", async () => {
         console.log("I am ready! Scraping themes now!");
+
+        // Scrape themes in discord messages
         const guild = await client.guilds.fetch(GUILD_ID);
         await scrapeAllThemesInServer(guild);
+
+        // Scrape themes in Imgurs
+        if (SHOULD_SCRAPE_IMGUR_LINKS) {
+            await scrapeAllImgurThemes();
+        }
+
         console.log("Scraping done! Goodbye!");
         client.destroy();
     });
