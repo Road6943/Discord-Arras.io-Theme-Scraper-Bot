@@ -1,10 +1,13 @@
 // Steps to Run:
 // 0. If neccesary, check out this code and then follow the Discord.js tutorial make and add a bot to your server
-// 1. Update the UPPERCASE_CONSTANT_VARIABLES below
+// 1. Update the UPPERCASE_CONSTANT_VARIABLES below. 
+//     - Search discord for "imgur.com" to find any new imgur links that need to be added, and add them to the list below.
 // 2. Run with `node <filename>` in actual Terminal window not VSCode
 // 3. Open them output file to see your results!
 
 const THEMES_FILE_NAME = "themes.txt";
+
+const SHOULD_SCRAPE_DISCORD_MESSAGES = false;
 const GUILD_ID = "1132366246223040642";
 const IGNORE_CHANNEL_CATEGORIES = new Set([
     "1132386994572513361", // INFORMATION
@@ -16,10 +19,15 @@ const IGNORE_CHANNELS = new Set([
     "1135223324117573702", // #general
 ]);
 
-const SHOULD_SCRAPE_IMGUR_LINKS = false;
+const SHOULD_SCRAPE_IMGUR_LINKS = true;
 const ALL_IMGUR_LINKS_TO_SCRAPE = [
-
-]
+    "https://imgur.com/a/TXnFAzK", // Harry
+    "https://imgur.com/gallery/bFUgVtz", // Skr
+    "https://imgur.com/a/rjVAMbb", // Reaper
+    //"https://imgur.com/gallery/dYEMjzP", // Mr.Hacker - no longer works
+    "https://imgur.com/gallery/sl44gV0", // Harry 2
+    "https://imgur.com/a/9GdfuxI", // Reaper 2
+];
 
 // ========================================
 
@@ -115,17 +123,99 @@ function appendThemesToFile(themes) {
     fs.appendFileSync(THEMES_FILE_NAME, allThemesStr);
 }
 
-// Not worth trying to extract all imgur links automatically because their url's vary a lot
-// There's only a handful of imgur links in the server, so its easier to maintain a manual list
-async function scrapeAllImgurThemes() {
-    // TODO
-    console.log('Scraping Imgur sites!');
-    // https://github.com/Road6943/Arras-Highest-Scores-Over-Time-Bar-Chart-Race/blob/ceae02ed2534b198a8475fc363081888e65ce3e7/make_racing_bar_chart.py#L388
-    // https://stackoverflow.com/a/55713496
+// Because imgur lazy-loads image descriptions, we need to scroll down the page using this code
+// https://stackoverflow.com/a/56628239
+// This function will be passed to page.evaluate() so it will only work in the context
+//      of the website being scraped, so only variables within this function
+//      or the website itself can be accessed in the function below
+//      External or Global variables cannot be used here!
+async function scrollImgurUrlAndCollectAllImgDescriptions() {
+    // https://stackoverflow.com/a/57585533
+    // Need to use a promise or otherwise the scrolling will work but
+    //  the set will be returned immediately without any values
+    return await new Promise(resolve => {
+        const scrollDistance = 100;
+        const scrollDelay = 100;
+        const scrollMaxTime = 5; // in seconds
+        let imgDescriptions = new Set();
+        const getAllImgDescriptions = () => [...document.querySelectorAll('.Gallery-Content--descr')].map(el => el.innerText);
+        const startTime = performance.now();
+
+        const timer = setInterval(() => {
+            // get new image descriptions both before and after scroll so we don't miss any
+            imgDescriptions = new Set([imgDescriptions, ...getAllImgDescriptions()]);
+            document.scrollingElement.scrollBy(0, scrollDistance);
+            imgDescriptions = new Set([imgDescriptions, ...getAllImgDescriptions()]);
+
+            // end scrolling once bottom of page reached
+            // Imgur has infinite scroll after end of gallery
+            // So also check to see if elem with class BottomRecirc exists
+            // because that lets us know to stop scrolling down
+            if (
+                document.scrollingElement.scrollTop + window.innerHeight >= document.scrollingElement.scrollHeight
+                || document.querySelector('.BottomRecirc')
+                || performance.now() - startTime > (scrollMaxTime * 1000)
+            ) {
+                clearInterval(timer);
+                // One last time just to make sure we didn't miss any themes
+                imgDescriptions = new Set([imgDescriptions, ...getAllImgDescriptions()]);
+                // Need to resolve inside interval bc otherwise it returns empty
+                resolve(imgDescriptions);
+            }
+        }, scrollDelay);
+    })
 }
 
-async function scrapeAllThemesInServer(guild) {
-    let seenThemes = loadSeenThemes();
+// Not worth trying to extract all imgur links automatically because their url's vary a lot
+// There's only a handful of imgur links in the server, so its easier to maintain a manual list
+// Updates and returns seenThemes
+
+// SWITCH TO USING IMGUR API BECAUSE SOME ALBUMS HAVE LOAD MORE BTN AND ALL THAT
+// API WOULD BE WAY EASIER, use nodejs unirest - https://apidocs.imgur.com/#7dde894b-a967-4419-9be2-082fbf379109
+async function scrapeAllImgurThemes(seenThemes) {
+    const puppeteer = require('puppeteer');
+    const locateChrome = require('locate-chrome'); // Need this or puppeteer can't launch
+
+    console.log('Scraping Imgur sites!');
+
+    const failedScrapes = [];
+    const allImgDescriptions = new Set();
+
+    const executablePath = await new Promise(resolve => locateChrome(arg => resolve(arg)));
+    const browser = await puppeteer.launch({ executablePath });
+    const page = await browser.newPage();
+
+    for (const url of ALL_IMGUR_LINKS_TO_SCRAPE.slice(0,1)) {
+        try {
+            console.log("Scraping " + url)
+            await page.goto(url); 
+            const imgDescriptionsAtUrl = await page.evaluate(scrollImgurUrlAndCollectAllImgDescriptions);
+            console.log(imgDescriptionsAtUrl);
+            allImgDescriptions = new Set([...allImgDescriptions, ...imgDescriptionsAtUrl]);
+        } 
+        catch (err) {
+            failedScrapes.push(url);
+        }
+    }
+
+    await browser.close();
+
+    if (failedScrapes.length > 0) {
+        console.error("Scraping failed for the following url's:");
+        for (const failedUrl of failedScrapes) {
+            console.error(failedUrl);
+        }
+    }
+    console.log(JSON.stringify(allImgDescriptions));
+
+    const unseenThemes = extractAllMatchesFromTexts(allImgDescriptions, seenThemes, extractFirstFoundTigerThemeFromText);
+    appendThemesToFile(unseenThemes);
+    seenThemes = new Set([...seenThemes, ...unseenThemes]);
+    return seenThemes;
+}
+
+// updates and returns seenThemes
+async function scrapeAllThemesInServer(guild, seenThemes) {
     const channels = getChannels(guild);
    
     // For each channel, get all messages and extract all themes
@@ -143,6 +233,7 @@ async function scrapeAllThemesInServer(guild) {
         appendThemesToFile(unseenThemes);
         seenThemes = new Set([...seenThemes, ...unseenThemes]);
     }
+    return seenThemes;
 }
 
 function main() {
@@ -152,14 +243,17 @@ function main() {
 
     client.on("ready", async () => {
         console.log("I am ready! Scraping themes now!");
+        let seenThemes = loadSeenThemes();
 
         // Scrape themes in discord messages
-        const guild = await client.guilds.fetch(GUILD_ID);
-        await scrapeAllThemesInServer(guild);
+        if (SHOULD_SCRAPE_DISCORD_MESSAGES) {
+            const guild = await client.guilds.fetch(GUILD_ID);
+            seenThemes = await scrapeAllThemesInServer(guild, seenThemes);
+        }
 
         // Scrape themes in Imgurs
         if (SHOULD_SCRAPE_IMGUR_LINKS) {
-            await scrapeAllImgurThemes();
+            seenThemes = await scrapeAllImgurThemes(seenThemes);
         }
 
         console.log("Scraping done! Goodbye!");
