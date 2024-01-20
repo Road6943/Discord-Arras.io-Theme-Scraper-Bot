@@ -1,6 +1,6 @@
 // Steps to Run:
 // 0. If neccesary, check out this code and then follow the Discord.js tutorial make and add a bot to your server
-// 1. Update the UPPERCASE_CONSTANT_VARIABLES below. 
+// 1. Update the UPPERCASE_CONSTANT_VARIABLES below and in secrets.js 
 //     - Search discord for "imgur.com" to find any new imgur links that need to be added, and add them to the list below.
 // 2. Run with `node <filename>` in actual Terminal window not VSCode
 // 3. Open them output file to see your results!
@@ -10,7 +10,6 @@ const THEMES_FILE_NAME = "themes.txt";
 const SHOULD_SCRAPE_DISCORD_MESSAGES = true;
 const GUILD_ID = "1132366246223040642";
 const IGNORE_CHANNEL_CATEGORIES = new Set([
-    "1132386994572513361", // INFORMATION
     "1142866269062824068", // STAFF
 ]);
 // Note, there's only 20ish channels to read, so if it looks like the bot
@@ -30,6 +29,10 @@ const ALL_IMGUR_LINKS_TO_SCRAPE = [
     "https://imgur.com/a/9GdfuxI", // Reaper 2
 ];
 
+const REPLACEMENTS = {
+    '<#1136268338977308682>': '#1c' // channel previously known as #1c messed up colors starting with #1c
+}
+
 // ========================================
 
 const { DISCORD_BOT_TOKEN: token, IMGUR_CLIENT_ID } = require('./secrets');
@@ -37,7 +40,6 @@ const fetchAll = require('discord-fetch-all');
 const fs = require('fs');
 const { Client, Intents } = require("discord.js");
 const fetch = require('node-fetch');
-const { fail } = require('assert');
 
 // Returns set of the themes already saved in the themes file
 // Themes file is a text file where each line contains a Tiger Theme string
@@ -170,6 +172,19 @@ async function scrapeAllImgurThemes(seenThemes) {
     return seenThemes;
 }
 
+// For example, channel with id 1136268338977308682 aka "1c" messes up themes with colors
+//      starting with #1c, so handle stuff like that here
+function makeReplacements(unreplacedThemes) {
+    const themes = [...unreplacedThemes]
+    for (const theme of themes) {
+        for (const toReplace in REPLACEMENTS) {
+            const replaceWith = REPLACEMENTS[toReplace];
+            theme.replaceAll(toReplace, replaceWith);
+        }
+    }
+    return themes;
+}
+
 // updates and returns seenThemes
 async function scrapeAllThemesInServer(guild, seenThemes) {
     const channels = getChannels(guild);
@@ -186,6 +201,7 @@ async function scrapeAllThemesInServer(guild, seenThemes) {
 
          // After reading a channel, append its unseen themes to the file and seenThemes
         unseenThemes = extractAllMatchesFromTexts(allMessagesTexts, seenThemes, extractFirstFoundTigerThemeFromText);
+        unseenThemes = makeReplacements(unseenThemes);
         appendThemesToFile(unseenThemes);
         seenThemes = new Set([...seenThemes, ...unseenThemes]);
     }
