@@ -120,11 +120,19 @@ function extractAllMatchesFromTexts(texts, seenSet, matchFunction) {
     return unseenSet;
 }
 
+// Also do replacements
 function appendThemesToFile(themes) {
     let allThemesStr = "";
     for (const theme of themes) {
         allThemesStr += (theme + "\n");
     }
+    
+    // Do replacements
+    for (const older in REPLACEMENTS) {
+        const newer = REPLACEMENTS[older];
+        allThemesStr = allThemesStr.replaceAll(older, newer);
+    }
+
     fs.appendFileSync(THEMES_FILE_NAME, allThemesStr);
 }
 
@@ -172,19 +180,6 @@ async function scrapeAllImgurThemes(seenThemes) {
     return seenThemes;
 }
 
-// For example, channel with id 1136268338977308682 aka "1c" messes up themes with colors
-//      starting with #1c, so handle stuff like that here
-function makeReplacements(unreplacedThemes) {
-    const themes = [...unreplacedThemes]
-    for (const theme of themes) {
-        for (const toReplace in REPLACEMENTS) {
-            const replaceWith = REPLACEMENTS[toReplace];
-            theme.replaceAll(toReplace, replaceWith);
-        }
-    }
-    return themes;
-}
-
 // updates and returns seenThemes
 async function scrapeAllThemesInServer(guild, seenThemes) {
     const channels = getChannels(guild);
@@ -201,7 +196,6 @@ async function scrapeAllThemesInServer(guild, seenThemes) {
 
          // After reading a channel, append its unseen themes to the file and seenThemes
         unseenThemes = extractAllMatchesFromTexts(allMessagesTexts, seenThemes, extractFirstFoundTigerThemeFromText);
-        unseenThemes = makeReplacements(unseenThemes);
         appendThemesToFile(unseenThemes);
         seenThemes = new Set([...seenThemes, ...unseenThemes]);
     }
