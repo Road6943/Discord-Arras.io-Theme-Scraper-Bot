@@ -27,6 +27,7 @@ const ALL_IMGUR_LINKS_TO_SCRAPE = [
     //"https://imgur.com/gallery/dYEMjzP", // Mr.Hacker - no longer works
     "https://imgur.com/gallery/sl44gV0", // Harry 2
     "https://imgur.com/a/9GdfuxI", // Reaper 2
+    "https://imgur.com/a/gxFemAk", // Reaper Color Blindness Simulators
 ];
 
 const REPLACEMENTS = {
